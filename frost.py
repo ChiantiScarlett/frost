@@ -1,9 +1,3 @@
-# Project Faust
-# Code Reference:
-#   https://stackoverflow.com/questions/44210656/
-#   https://stackoverflow.com/questions/8481943/
-
-
 import os
 import sys
 import pip
@@ -11,12 +5,15 @@ from contextlib import contextmanager
 from subprocess import Popen, STDOUT
 
 
-class MessageToast:
-    def __init__(self, message):
-        return "[*] {}".format(str(message))
+def toast_message(message):
+    print("[*] {}".format(str(message)))
 
 
-class Compatible:
+class Downloader:
+    def __init__(self):
+        self.opts = None
+        self.args = None
+
     @contextmanager
     def suppress_stdout(self):
         with open(os.devnull, "w") as devnull:
@@ -27,77 +24,101 @@ class Compatible:
             finally:
                 sys.stdout = old_stdout
 
-    def __init__(self):
+    def check_compatibility(self):
         # Check OS system
         if sys.platform not in ['linux', 'linux2']:
-            MessageToast('Frost only works on Linux platform.' +
-                         'Seems like your OS is something else.')
+            toast_message('Frost only works on Linux platform.' +
+                          'Seems like your OS is something else.')
             return False
 
         # Check youtube_dl. If not installed, install it using `pip`.
         installed_pkgs = [pkg.key for pkg in pip.get_installed_distributions()]
-        if 'youtube_dl' not in installed_pkgs:
+        if 'youtube-dl' not in installed_pkgs:
             with self.suppress_stdout():
-                pip.main(['install', 'youtube_dl'])
+                pip.main(['install', 'youtube-dl'])
 
         # Check ffmpeg. If not installed, install it using `apt` command.
         proc = Popen('apt-get install -y ffmpeg',
                      shell=True, stdin=None, stdout=open(os.devnull, "wb"),
                      stderr=STDOUT, executable="/bin/bash")
         proc.wait()
+
+        # Check nautilus. If not installed, install it using `apt` command.
+        proc = Popen('apt-get install -y nautilus',
+                     shell=True, stdin=None, stdout=open(os.devnull, "wb"),
+                     stderr=STDOUT, executable="/bin/bash")
+        proc.wait()
         return True
 
+    def check_options(self):
+        from optparse import OptionParser
 
-class Download:
-    def __init__(self, item):
+        # Set options
+        parser = OptionParser()
+        parser.add_option('-d', '--dir', dest='dir',
+                          help='specify a directory for saving files')
+        parser.add_option('-i', '--index', action='store_true', dest='verbose',
+                          help='specify channel ID')
+
+        (self.opts, self.args) = parser.parse_args()
+
+        # Check validity
+        if len(self.args) == 0:
+            toast_message(
+                'There should be at least one ID of a video/playlist/channel.')
+            return False
+
+        return True
+
+    def download(self):
         import youtube_dl
 
-        # Convert item into string
-        if type(item) == str:
-            item = [item]
+        # Change directory if specified
+        if self.opts.dir is not None:
+            try:
+                os.chdir(self.opts.dir)
+            except Exception:
+                x = input(
+                    "[*] Cannot find `{}`.".format(self.opts.dir) +
+                    "Do you like to create a new one? [Y/n] ")
+                if x.lower() != 'y':
+                    return False
+
+                try:
+                    os.mkdir(self.opts.dir)
+                    toast_message(
+                        'Created directory `{}`'.format(self.opts.dir))
+                    os.chdir(self.opts.dir)
+                except Exception:
+                    toast_message("Unable to create directory. Abort.")
+                    return False
+
+            toast_message('Directory set to {}'.format(self.opts.dir))
 
         ydl_opts = {
+            'outtmpl': '%(title)s.%(ext)s',
             'format': 'bestaudio/best',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
-                'preferredquality': '320',
-                'prefer_ffmpeg': True
+                'preferredquality': '320'
             }],
             'ignoreerrors': True,
             'nooverwrites': True,
-            'verbose': True
+            # 'verbose': True
         }
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            ydl.download(item)
+            ydl.download(self.args)
 
-
-class AnalyzeOptions:
-    def __init__(self):
-        pass
-
-    def is_valid(self):
-        from optparse import OptionParser
-        parser = OptionParser()
-        parser.add_option('-u', '--url', dest='url',
-                          help='URL of a video')
-        parser.add_option('-c', '--channel', dest='channel',
-                          help='Channel ID')
-        parser.add_option('-p', '--playlist', dest='playlist',
-                          help='Playlist ID or video URL with a playlist')
-        (options, args) = parser.parse_args()
-
-        print(options)
-        print(args)
         return True
 
 
 def main():
-    # Check if the platform is compatible and necessary modules are set.
-    # sys.exit(0) if not Compatible() else None
-
-    # Read options and settings
-    sys.exit(0) if not AnalyzeOptions().is_valid() else None
+    downloader = Downloader()
+    if downloader.check_compatibility() and downloader.check_options():
+        response = downloader.download()
+        if response:
+            toast_message('Operation complete.')
 
 
 if __name__ == "__main__":
